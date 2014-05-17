@@ -199,7 +199,7 @@ void LogSegment::try_to_expire(MDS *mds, C_GatherBuilder &gather_bld, int op_pri
     assert(in->is_auth());
     if (in->can_auth_pin()) {
       dout(15) << "try_to_expire waiting for storing backtrace on " << *in << dendl;
-      in->store_backtrace(gather_bld.new_sub());
+      in->store_backtrace(gather_bld.new_sub(), op_prio);
     } else {
       dout(15) << "try_to_expire waiting for unfreeze on " << *in << dendl;
       in->add_waiter(CInode::WAIT_UNFREEZE, gather_bld.new_sub());
@@ -314,13 +314,10 @@ void EMetaBlob::add_dir_context(CDir *dir, int mode)
       dout(20) << "EMetaBlob::add_dir_context(" << dir << ") have lump " << dir->dirfrag() << dendl;
       break;
     }
-      
+
     // stop at root/stray
     CInode *diri = dir->get_inode();
     CDentry *parent = diri->get_projected_parent_dn();
-
-    if (!parent)
-      break;
 
     if (mode == TO_AUTH_SUBTREE_ROOT) {
       // subtree root?
@@ -354,6 +351,9 @@ void EMetaBlob::add_dir_context(CDir *dir, int mode)
 	maybenot = true;
       }
     }
+
+    if (!parent)
+      break;
 
     if (maybenot) {
       dout(25) << "EMetaBlob::add_dir_context(" << dir << ")      maybe " << *parent << dendl;
@@ -399,12 +399,24 @@ void EMetaBlob::update_segment(LogSegment *ls)
 
 void EMetaBlob::fullbit::encode(bufferlist& bl) const {
   ENCODE_START(6, 5, bl);
-  if (!_enc.length()) {
-    fullbit copy(dn, dnfirst, dnlast, dnv, inode, dirfragtree, xattrs, symlink,
-		 snapbl, state, &old_inodes);
-    bl.append(copy._enc);
+  ::encode(dn, bl);
+  ::encode(dnfirst, bl);
+  ::encode(dnlast, bl);
+  ::encode(dnv, bl);
+  ::encode(inode, bl);
+  ::encode(xattrs, bl);
+  if (inode.is_symlink())
+    ::encode(symlink, bl);
+  if (inode.is_dir()) {
+    ::encode(dirfragtree, bl);
+    ::encode(snapbl, bl);
+  }
+  ::encode(state, bl);
+  if (old_inodes.empty()) {
+    ::encode(false, bl);
   } else {
-    bl.append(_enc);
+    ::encode(true, bl);
+    ::encode(old_inodes, bl);
   }
   ENCODE_FINISH(bl);
 }
@@ -452,19 +464,6 @@ void EMetaBlob::fullbit::decode(bufferlist::iterator &bl) {
 
 void EMetaBlob::fullbit::dump(Formatter *f) const
 {
-  if (_enc.length() && !dn.length()) {
-    /* if our bufferlist has data but our name is empty, we
-     * haven't initialized ourselves; do so in order to print members!
-     * We use const_cast here because the whole point is we aren't
-     * fully set up and this isn't changing who we "are", just our
-     * representation.
-     */
-    EMetaBlob::fullbit *me = const_cast<EMetaBlob::fullbit*>(this);
-    bufferlist encoded;
-    encode(encoded);
-    bufferlist::iterator p = encoded.begin();
-    me->decode(p);
-  }
   f->dump_string("dentry", dn);
   f->dump_stream("snapid.first") << dnfirst;
   f->dump_stream("snapid.last") << dnlast;
@@ -558,12 +557,13 @@ void EMetaBlob::fullbit::update_inode(MDS *mds, CInode *in)
 void EMetaBlob::remotebit::encode(bufferlist& bl) const
 {
   ENCODE_START(2, 2, bl);
-  if (!_enc.length()) {
-    remotebit copy(dn, dnfirst, dnlast, dnv, ino, d_type, dirty);
-    bl.append(copy._enc);
-  } else {
-    bl.append(_enc);
-  }
+  ::encode(dn, bl);
+  ::encode(dnfirst, bl);
+  ::encode(dnlast, bl);
+  ::encode(dnv, bl);
+  ::encode(ino, bl);
+  ::encode(d_type, bl);
+  ::encode(dirty, bl);
   ENCODE_FINISH(bl);
 }
 
@@ -582,19 +582,6 @@ void EMetaBlob::remotebit::decode(bufferlist::iterator &bl)
 
 void EMetaBlob::remotebit::dump(Formatter *f) const
 {
-  if (_enc.length() && !dn.length()) {
-    /* if our bufferlist has data but our name is empty, we
-     * haven't initialized ourselves; do so in order to print members!
-     * We use const_cast here because the whole point is we aren't
-     * fully set up and this isn't changing who we "are", just our
-     * representation.
-     */
-    EMetaBlob::remotebit *me = const_cast<EMetaBlob::remotebit*>(this);
-    bufferlist encoded;
-    encode(encoded);
-    bufferlist::iterator p = encoded.begin();
-    me->decode(p);
-  }
   f->dump_string("dentry", dn);
   f->dump_int("snapid.first", dnfirst);
   f->dump_int("snapid.last", dnlast);
@@ -636,12 +623,11 @@ generate_test_instances(list<EMetaBlob::remotebit*>& ls)
 void EMetaBlob::nullbit::encode(bufferlist& bl) const
 {
   ENCODE_START(2, 2, bl);
-  if (!_enc.length()) {
-    nullbit copy(dn, dnfirst, dnlast, dnv, dirty);
-    bl.append(copy._enc);
-  } else {
-    bl.append(_enc);
-  }
+  ::encode(dn, bl);
+  ::encode(dnfirst, bl);
+  ::encode(dnlast, bl);
+  ::encode(dnv, bl);
+  ::encode(dirty, bl);
   ENCODE_FINISH(bl);
 }
 
@@ -658,19 +644,6 @@ void EMetaBlob::nullbit::decode(bufferlist::iterator &bl)
 
 void EMetaBlob::nullbit::dump(Formatter *f) const
 {
-  if (_enc.length() && !dn.length()) {
-    /* if our bufferlist has data but our name is empty, we
-     * haven't initialized ourselves; do so in order to print members!
-     * We use const_cast here because the whole point is we aren't
-     * fully set up and this isn't changing who we "are", just our
-     * representation.
-     */
-    EMetaBlob::nullbit *me = const_cast<EMetaBlob::nullbit*>(this);
-    bufferlist encoded;
-    encode(encoded);
-    bufferlist::iterator p = encoded.begin();
-    me->decode(p);
-  }
   f->dump_string("dentry", dn);
   f->dump_int("snapid.first", dnfirst);
   f->dump_int("snapid.last", dnlast);
@@ -947,7 +920,7 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
     CInode *in = mds->mdcache->get_inode((*p)->inode.ino);
     bool isnew = in ? false:true;
     if (!in)
-      in = new CInode(mds->mdcache, true);
+      in = new CInode(mds->mdcache, false);
     (*p)->update_inode(mds, in);
 
     if (isnew)
@@ -988,13 +961,15 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
     dirlump &lump = lump_map[*lp];
 
     // the dir 
-    CDir *dir = mds->mdcache->get_force_dirfrag(*lp);
+    CDir *dir = mds->mdcache->get_force_dirfrag(*lp, true);
     if (!dir) {
       // hmm.  do i have the inode?
       CInode *diri = mds->mdcache->get_inode((*lp).ino);
       if (!diri) {
-	if (MDS_INO_IS_BASE(lp->ino)) {
+	if (MDS_INO_IS_MDSDIR(lp->ino)) {
+	  assert(MDS_INO_MDSDIR(mds->get_nodeid()) != lp->ino);
 	  diri = mds->mdcache->create_system_inode(lp->ino, S_IFDIR|0755);
+	  diri->state_clear(CInode::STATE_AUTH);
 	  dout(10) << "EMetaBlob.replay created base " << *diri << dendl;
 	} else {
 	  dout(0) << "EMetaBlob.replay missing dir ino  " << (*lp).ino << dendl;
@@ -1006,13 +981,17 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
       dir = diri->get_or_open_dirfrag(mds->mdcache, (*lp).frag);
 
       if (MDS_INO_IS_BASE(lp->ino))
-	mds->mdcache->adjust_subtree_auth(dir, CDIR_AUTH_UNKNOWN);
+	mds->mdcache->adjust_subtree_auth(dir, CDIR_AUTH_UNDEF);
 
       dout(10) << "EMetaBlob.replay added dir " << *dir << dendl;  
     }
     dir->set_version( lump.fnode.version );
     dir->fnode = lump.fnode;
 
+    if (lump.is_importing()) {
+      dir->state_set(CDir::STATE_AUTH);
+      dir->state_clear(CDir::STATE_COMPLETE);
+    }
     if (lump.is_dirty()) {
       dir->_mark_dirty(logseg);
 
@@ -1041,8 +1020,6 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
       dir->mark_new(logseg);
     if (lump.is_complete())
       dir->mark_complete();
-    else if (lump.is_importing())
-      dir->state_clear(CDir::STATE_COMPLETE);
     
     dout(10) << "EMetaBlob.replay updated dir " << *dir << dendl;  
 
@@ -1067,10 +1044,12 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
 	dn->first = p->dnfirst;
 	assert(dn->last == p->dnlast);
       }
+      if (lump.is_importing())
+	dn->state_set(CDentry::STATE_AUTH);
 
       CInode *in = mds->mdcache->get_inode(p->inode.ino, p->dnlast);
       if (!in) {
-	in = new CInode(mds->mdcache, true, p->dnfirst, p->dnlast);
+	in = new CInode(mds->mdcache, dn->is_auth(), p->dnfirst, p->dnlast);
 	p->update_inode(mds, in);
 	mds->mdcache->add_inode(in);
 	if (!dn->get_linkage()->is_null()) {
@@ -1087,7 +1066,6 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
 	if (unlinked.count(in))
 	  linked.insert(in);
 	dir->link_primary_inode(dn, in);
-	if (p->is_dirty()) in->_mark_dirty(logseg);
 	dout(10) << "EMetaBlob.replay added " << *in << dendl;
       } else {
 	p->update_inode(mds, in);
@@ -1115,12 +1093,17 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
 	} else {
 	  dout(10) << "EMetaBlob.replay for [" << p->dnfirst << "," << p->dnlast << "] had " << *in << dendl;
 	}
-	if (p->is_dirty()) in->_mark_dirty(logseg);
 	assert(in->first == p->dnfirst ||
 	       (in->is_multiversion() && in->first > p->dnfirst));
       }
+      if (p->is_dirty())
+	in->_mark_dirty(logseg);
       if (p->is_dirty_parent())
 	in->_mark_dirty_parent(logseg, p->is_dirty_pool());
+      if (dn->is_auth())
+	in->state_set(CInode::STATE_AUTH);
+      else
+	in->state_clear(CInode::STATE_AUTH);
       assert(g_conf->mds_kill_journal_replay_at != 2);
     }
 
@@ -1153,6 +1136,8 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
 	dn->first = p->dnfirst;
 	assert(dn->last == p->dnlast);
       }
+      if (lump.is_importing())
+	dn->state_set(CDentry::STATE_AUTH);
     }
 
     // null dentries
@@ -1185,6 +1170,8 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
 	assert(dn->last == p->dnlast);
       }
       olddir = dir;
+      if (lump.is_importing())
+	dn->state_set(CDentry::STATE_AUTH);
     }
   }
 
@@ -1210,9 +1197,11 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
 	for (list<frag_t>::iterator p = leaves.begin(); p != leaves.end(); ++p) {
 	  CDir *dir = renamed_diri->get_dirfrag(*p);
 	  assert(dir);
-	  // preserve subtree bound until slave commit
 	  if (dir->get_dir_auth() == CDIR_AUTH_UNDEF)
+	    // preserve subtree bound until slave commit
 	    slaveup->olddirs.insert(dir->inode);
+	  else
+	    dir->state_set(CDir::STATE_AUTH);
 	}
       }
 
@@ -1240,6 +1229,7 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
 	}
 	dir = renamed_diri->get_or_open_dirfrag(mds->mdcache, *p);
 	dout(10) << " creating new rename import bound " << *dir << dendl;
+	dir->state_clear(CDir::STATE_AUTH);
 	mds->mdcache->adjust_subtree_auth(dir, CDIR_AUTH_UNDEF, false);
       }
     }
@@ -1315,36 +1305,49 @@ void EMetaBlob::replay(MDS *mds, LogSegment *logseg, MDSlaveUpdate *slaveup)
     if (mds->sessionmap.version >= sessionmapv) {
       dout(10) << "EMetaBlob.replay sessionmap v " << sessionmapv
 	       << " <= table " << mds->sessionmap.version << dendl;
-    } else {
-      dout(10) << "EMetaBlob.replay sessionmap v" << sessionmapv
+    } else if (mds->sessionmap.version + 2 >= sessionmapv) {
+      dout(10) << "EMetaBlob.replay sessionmap v " << sessionmapv
 	       << " -(1|2) == table " << mds->sessionmap.version
 	       << " prealloc " << preallocated_inos
 	       << " used " << used_preallocated_ino
 	       << dendl;
       Session *session = mds->sessionmap.get_session(client_name);
-      assert(session);
-      dout(20) << " (session prealloc " << session->info.prealloc_inos << ")" << dendl;
-      if (used_preallocated_ino) {
-	if (session->info.prealloc_inos.empty()) {
-	  // HRM: badness in the journal
-	  mds->clog.warn() << " replayed op " << client_reqs << " on session for " << client_name
-			   << " with empty prealloc_inos\n";
-	} else {
-	  inodeno_t next = session->next_ino();
-	  inodeno_t i = session->take_ino(used_preallocated_ino);
-	  if (next != i)
-	    mds->clog.warn() << " replayed op " << client_reqs << " used ino " << i
-			     << " but session next is " << next << "\n";
-	  assert(i == used_preallocated_ino);
-	  session->info.used_inos.clear();
+      if (session) {
+	dout(20) << " (session prealloc " << session->info.prealloc_inos << ")" << dendl;
+	if (used_preallocated_ino) {
+	  if (session->info.prealloc_inos.empty()) {
+	    // HRM: badness in the journal
+	    mds->clog.warn() << " replayed op " << client_reqs << " on session for "
+			     << client_name << " with empty prealloc_inos\n";
+	  } else {
+	    inodeno_t next = session->next_ino();
+	    inodeno_t i = session->take_ino(used_preallocated_ino);
+	    if (next != i)
+	      mds->clog.warn() << " replayed op " << client_reqs << " used ino " << i
+			       << " but session next is " << next << "\n";
+	    assert(i == used_preallocated_ino);
+	    session->info.used_inos.clear();
+	  }
+	  mds->sessionmap.projected = ++mds->sessionmap.version;
 	}
-	mds->sessionmap.projected = ++mds->sessionmap.version;
-      }
-      if (preallocated_inos.size()) {
-	session->info.prealloc_inos.insert(preallocated_inos);
-	mds->sessionmap.projected = ++mds->sessionmap.version;
+	if (!preallocated_inos.empty()) {
+	  session->info.prealloc_inos.insert(preallocated_inos);
+	  mds->sessionmap.projected = ++mds->sessionmap.version;
+	}
+      } else {
+	dout(10) << "EMetaBlob.replay no session for " << client_name << dendl;
+	if (used_preallocated_ino)
+	  mds->sessionmap.projected = ++mds->sessionmap.version;
+	if (!preallocated_inos.empty())
+	  mds->sessionmap.projected = ++mds->sessionmap.version;
       }
       assert(sessionmapv == mds->sessionmap.version);
+    } else {
+      mds->clog.error() << "journal replay sessionmap v " << sessionmapv
+			<< " -(1|2) > table " << mds->sessionmap.version << "\n";
+      assert(g_conf->mds_wipe_sessions);
+      mds->sessionmap.wipe();
+      mds->sessionmap.version = mds->sessionmap.projected = sessionmapv;
     }
   }
 
@@ -2320,7 +2323,7 @@ void ESubtreeMap::replay(MDS *mds)
       }
 
       for (vector<dirfrag_t>::iterator q = p->second.begin(); q != p->second.end(); ++q)
-	mds->mdcache->get_force_dirfrag(*q);
+	mds->mdcache->get_force_dirfrag(*q, true);
 
       set<CDir*> bounds;
       mds->mdcache->get_subtree_bounds(dir, bounds);
@@ -2405,7 +2408,9 @@ void ESubtreeMap::replay(MDS *mds)
       mds->mdcache->adjust_bounded_subtree_auth(dir, p->second, mds->get_nodeid());
     }
   }
-  
+
+  mds->mdcache->recalc_auth_bits(true);
+
   mds->mdcache->show_subtrees();
 }
 
@@ -2623,7 +2628,20 @@ void EImportStart::replay(MDS *mds)
   // set auth partially to us so we don't trim it
   CDir *dir = mds->mdcache->get_dirfrag(base);
   assert(dir);
-  mds->mdcache->adjust_bounded_subtree_auth(dir, bounds, pair<int,int>(mds->get_nodeid(), mds->get_nodeid()));
+
+  set<CDir*> realbounds;
+  for (vector<dirfrag_t>::iterator p = bounds.begin();
+       p != bounds.end();
+       ++p) {
+    CDir *bd = mds->mdcache->get_dirfrag(*p);
+    assert(bd);
+    if (!bd->is_subtree_root())
+      bd->state_clear(CDir::STATE_AUTH);
+    realbounds.insert(bd);
+  }
+
+  mds->mdcache->adjust_bounded_subtree_auth(dir, realbounds,
+					    pair<int,int>(mds->get_nodeid(), mds->get_nodeid()));
 
   // open client sessions?
   if (mds->sessionmap.version >= cmapv) {
@@ -2780,6 +2798,8 @@ void EResetJournal::replay(MDS *mds)
 
   CDir *mydir = mds->mdcache->get_myin()->get_or_open_dirfrag(mds->mdcache, frag_t());
   mds->mdcache->adjust_subtree_auth(mydir, mds->whoami);   
+
+  mds->mdcache->recalc_auth_bits(true);
 
   mds->mdcache->show_subtrees();
 }

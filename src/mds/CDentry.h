@@ -33,7 +33,6 @@ using namespace std;
 
 class CInode;
 class CDir;
-struct MDRequest;
 
 class Message;
 class CDentry;
@@ -88,7 +87,7 @@ public:
     case PIN_PURGING: return "purging";
     default: return generic_pin_name(p);
     }
-  };
+  }
 
   // -- wait --
   //static const int WAIT_LOCK_OFFSET = 8;

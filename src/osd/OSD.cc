@@ -4774,7 +4774,9 @@ void OSDService::share_map(
       dout(10) << name << " has old map " << epoch
           << " < " << osdmap->get_epoch() << dendl;
       // we know the Session is valid or we wouldn't be sending
-      *sent_epoch_p = osdmap->get_epoch();
+      if (sent_epoch_p) {
+	*sent_epoch_p = osdmap->get_epoch();
+      }
       send_incremental_map(epoch, con, osdmap);
     } else if (con->get_messenger() == osd->cluster_messenger &&
         osdmap->is_up(name.num()) &&
@@ -5031,7 +5033,7 @@ bool OSD::ms_verify_authorizer(Connection *con, int peer_type,
     s->put();
   }
   return true;
-};
+}
 
 void OSD::do_waiters()
 {
@@ -5263,7 +5265,7 @@ void OSD::_dispatch(Message *m)
 
   default:
     {
-      OpRequestRef op = op_tracker.create_request<OpRequest>(m);
+      OpRequestRef op = op_tracker.create_request<OpRequest, Message*>(m);
       op->mark_event("waiting_for_osdmap");
       // no map?  starting up?
       if (!osdmap) {
@@ -5850,7 +5852,7 @@ void OSD::handle_osd_map(MOSDMap *m)
 	       (osdmap->get_hb_front_addr(whoami) != entity_addr_t() &&
                 !osdmap->get_hb_front_addr(whoami).probably_equals(hb_front_server_messenger->get_myaddr()))) {
       if (!osdmap->is_up(whoami)) {
-	if (service.is_preparing_to_stop()) {
+	if (service.is_preparing_to_stop() || service.is_stopping()) {
 	  service.got_stop_ack();
 	} else {
 	  clog.warn() << "map e" << osdmap->get_epoch()
@@ -7853,6 +7855,13 @@ void OSD::handle_op(OpRequestRef op, OSDMapRef osdmap)
 		      << " features " << m->get_connection()->get_features()
 		      << "\n";
     service.reply_op_error(op, -ENXIO);
+    return;
+  }
+
+  // check against current map too
+  if (!osdmap->have_pg_pool(pgid.pool()) ||
+      osdmap->get_pg_acting_role(pgid.pgid, whoami) < 0) {
+    dout(7) << "dropping; no longer have PG (or pool); client will retarget" << dendl;
     return;
   }
 

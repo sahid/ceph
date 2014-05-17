@@ -479,7 +479,7 @@ static int do_show_info(const char *imgname, librbd::Image& image,
   string parent_pool, parent_name, parent_snapname;
   uint8_t old_format;
   uint64_t overlap, features;
-  bool snap_protected;
+  bool snap_protected = false;
   int r;
 
   r = image.stat(info, sizeof(info));
@@ -1263,8 +1263,8 @@ static void update_snap_name(char *imgname, char **snap)
     *snap = s;
 }
 
-static void set_pool_image_name(const char *orig_pool, const char *orig_img,
-                                char **new_pool, char **new_img, char **snap)
+static void set_pool_image_name(const char *orig_img, char **new_pool, 
+				char **new_img, char **snap)
 {
   const char *sep;
 
@@ -2258,7 +2258,7 @@ if (!set_conf_param(v, p1, p2, p3)) { \
 
   // do this unconditionally so we can parse pool/image@snapshot into
   // the relevant parts
-  set_pool_image_name(poolname, imgname, (char **)&poolname,
+  set_pool_image_name(imgname, (char **)&poolname,
 		      (char **)&imgname, (char **)&snapname);
   if (snapname && opt_cmd != OPT_SNAP_CREATE && opt_cmd != OPT_SNAP_ROLLBACK &&
       opt_cmd != OPT_SNAP_REMOVE && opt_cmd != OPT_INFO &&
@@ -2278,7 +2278,7 @@ if (!set_conf_param(v, p1, p2, p3)) { \
     return EXIT_FAILURE;
   }
 
-  set_pool_image_name(dest_poolname, destname, (char **)&dest_poolname,
+  set_pool_image_name(destname, (char **)&dest_poolname,
 		      (char **)&destname, (char **)&dest_snapname);
 
   if (opt_cmd == OPT_IMPORT) {

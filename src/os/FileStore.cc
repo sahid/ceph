@@ -1387,7 +1387,7 @@ int FileStore::mount()
     stringstream err2;
 
     if (g_conf->filestore_debug_omap_check && !dbomap->check(err2)) {
-      derr << err2.str() << dendl;;
+      derr << err2.str() << dendl;
       delete dbomap;
       ret = -EINVAL;
       goto close_current_fd;
@@ -1477,7 +1477,7 @@ int FileStore::mount()
   {
     stringstream err2;
     if (g_conf->filestore_debug_omap_check && !object_map->check(err2)) {
-      derr << err2.str() << dendl;;
+      derr << err2.str() << dendl;
       ret = -EINVAL;
       goto close_current_fd;
     }
@@ -3756,7 +3756,6 @@ int FileStore::_setattrs(coll_t cid, const ghobject_t& oid, map<string,bufferptr
   r = _fgetattrs(**fd, inline_set, false);
   assert(!m_filestore_fail_eio || r != -EIO);
   dout(15) << "setattrs " << cid << "/" << oid << dendl;
-  r = 0;
 
   for (map<string,bufferptr>::iterator p = aset.begin();
        p != aset.end();
@@ -4090,7 +4089,6 @@ int FileStore::_collection_remove_recursive(const coll_t &cid,
 
   vector<ghobject_t> objects;
   ghobject_t max;
-  r = 0;
   while (!max.is_max()) {
     r = collection_list_partial(cid, max, 200, 300, 0, &objects, &max);
     if (r < 0)
